@@ -1,0 +1,268 @@
+@page "/"
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<div class="container mx-auto p-4 max-w-5xl pt-12">
+    @if (Game.State == GameManager.GameState.Setup)
+    {
+        <div class="glass-card max-w-2xl mx-auto animate-fade-in-up">
+            <h1 class="text-4xl font-light text-center mb-10 tracking-widest text-gradient uppercase">Configurar Partida</h1>
+            
+            <div class="space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-semibold text-[#45A29E] uppercase tracking-wider mb-2">Tema de las palabras</label>
+                        <input @bind="SetupTheme" class="w-full px-4 py-3 bg-[#0B0C10] text-[#C5C6C7] rounded-md border border-[#1f2833] focus:border-[#66FCF1] focus:ring-1 focus:ring-[#66FCF1] outline-none transition-all" placeholder="Ej: Animales, Colores..." />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-[#45A29E] uppercase tracking-wider mb-2">Tiempo Límite (segundos)</label>
+                        <input type="number" @bind="SetupTime" min="30" class="w-full px-4 py-3 bg-[#0B0C10] text-[#C5C6C7] rounded-md border border-[#1f2833] focus:border-[#66FCF1] focus:ring-1 focus:ring-[#66FCF1] outline-none transition-all" />
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-[#45A29E] uppercase tracking-wider mb-4">Cantidad de Jugadores</label>
+                    <div class="flex items-center gap-6 bg-[#0B0C10] p-4 rounded-md border border-[#1f2833]">
+                        <input type="range" @bind="PlayerCount" @bind:event="oninput" min="2" max="50" class="w-full accent-[#66FCF1]" />
+                        <span class="text-2xl font-light text-[#66FCF1] w-12 text-center">@PlayerCount</span>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <label class="block text-xs font-semibold text-[#45A29E] uppercase tracking-wider">Nombres de Jugadores</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                        @for (int i = 0; i < PlayerCount; i++)
+                        {
+                            int currentIndex = i;
+                            if (SetupPlayers.Count <= currentIndex) SetupPlayers.Add($"Jugador {currentIndex + 1}");
+
+                            <input value="@SetupPlayers[currentIndex]" @onchange="(e) => UpdatePlayerName(currentIndex, e.Value?.ToString())"
+                                class="w-full px-4 py-3 bg-[#0B0C10] text-[#C5C6C7] rounded-md border border-[#1f2833] focus:border-[#66FCF1] transition-all outline-none text-sm placeholder-[#45A29E]" placeholder="Nombre..." />
+                        }
+                    </div>
+                </div>
+
+                <button @onclick="StartGame" class="w-full py-4 mt-8 bg-transparent border border-[#66FCF1] text-[#66FCF1] hover:bg-[#66FCF1] hover:text-[#0B0C10] rounded-md font-bold tracking-widest uppercase transition-all duration-300">
+                    Iniciar Partida
+                </button>
+            </div>
+        </div>
+    }
+    else if (Game.State == GameManager.GameState.Playing)
+    {
+        <div class="flex flex-col lg:flex-row gap-8">
+            <!-- Columna Principal -->
+            <div class="flex-1 space-y-8">
+                <!-- Info Top (Timer + Tema) -->
+                <div class="flex justify-between items-center glass-card py-5 animate-fade-in-up">
+                    <div class="text-center px-4 flex-1">
+                        <div class="text-xs font-bold text-[#45A29E] uppercase tracking-widest mb-1">Tema</div>
+                        <div class="text-xl font-light text-[#C5C6C7] tracking-wide">@Game.Theme</div>
+                    </div>
+                    <div class="text-center px-8 border-l border-r border-[#1f2833] flex-1">
+                        <div class="text-xs font-bold text-[#45A29E] uppercase tracking-widest mb-1">Tiempo</div>
+                        <div class="text-5xl font-light @(Game.TimeRemaining <= 10 ? "text-red-400 animate-pulse" : "text-[#66FCF1]")">
+                            @Game.TimeRemaining<span class="text-lg text-[#45A29E] ml-1">s</span>
+                        </div>
+                    </div>
+                    <div class="text-center px-4 flex-1 flex justify-center">
+                        <button @onclick="ForceRestart" class="w-12 h-12 flex items-center justify-center rounded-full border border-[#1f2833] text-[#45A29E] hover:border-red-400 hover:text-red-400 transition-all" title="Reiniciar (Esc)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tarjeta del Turno Actual -->
+                <div class="glass-card text-center py-16 @(ShakeInput ? "animate-shake border-red-500/50" : "") transition-colors duration-300">
+                    <h2 class="text-sm font-semibold text-[#45A29E] tracking-widest uppercase mb-4">Turno Actual</h2>
+                    <h1 class="text-5xl md:text-6xl font-light text-[#C5C6C7] mb-12 tracking-wide">@Game.CurrentPlayer?.Name</h1>
+
+                    <div class="max-w-lg mx-auto relative group">
+                        <input @ref="wordInputRef" @bind="CurrentInput" @onkeyup="HandleKeyUp"
+                            class="w-full text-center text-2xl md:text-3xl px-6 py-5 rounded-md bg-[#0B0C10] text-[#66FCF1] border border-[#1f2833] focus:border-[#66FCF1] outline-none transition-all uppercase tracking-wider placeholder-[#1f2833]"
+                            placeholder="..." autofocus autocomplete="off" />
+                        
+                        <button @onclick="SubmitCurrentWord" class="absolute right-3 top-3 bottom-3 px-6 bg-transparent text-[#45A29E] group-hover:text-[#66FCF1] font-bold tracking-widest transition-colors flex items-center">
+                            ↵
+                        </button>
+                    </div>
+                    @if(HasError)
+                    {
+                        <div class="text-red-400 font-light tracking-wide mt-6 animate-fade-in-up">Esta palabra no es válida o ya fue usada</div>
+                    }
+                </div>
+            </div>
+
+            <!-- Columna Historial y Stats -->
+            <div class="w-full lg:w-96 space-y-8 flex flex-col">
+                <!-- Historial -->
+                <div class="glass-card flex-1 flex flex-col min-h-[300px]">
+                    <h3 class="text-xs font-bold text-[#45A29E] uppercase tracking-widest mb-6 flex justify-between items-center pb-4 border-b border-[#1f2833]">
+                        <span>Registro</span>
+                        <span class="text-[#66FCF1] text-sm">@Game.UsedWords.Count</span>
+                    </h3>
+                    <div class="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                        @for(int i = Game.UsedWords.Count - 1; i >= 0; i--)
+                        {
+                            <div class="text-[#C5C6C7] font-light tracking-wide flex items-center animate-fade-in-up">
+                                <span class="text-[#66FCF1] mr-3">›</span> @Game.UsedWords[i]
+                            </div>
+                        }
+                        @if(Game.UsedWords.Count == 0)
+                        {
+                            <div class="text-[#1f2833] text-center italic mt-12 font-light tracking-wide">Vacío</div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Tabla Jugadores -->
+                <div class="glass-card max-h-[400px] flex flex-col">
+                    <h3 class="text-xs font-bold text-[#45A29E] uppercase tracking-widest mb-6 pb-4 border-b border-[#1f2833]">Clasificación</h3>
+                    <div class="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                        @foreach(var p in Game.Players.OrderByDescending(x => x.WordsGuessed))
+                        {
+                            <div class="flex justify-between items-center py-3 px-4 rounded-md @(p.Id == Game.CurrentPlayer?.Id ? "bg-[#1f2833] border-l-2 border-[#66FCF1]" : "border-l-2 border-transparent")">
+                                <span class="font-light tracking-wide @(p.Id == Game.CurrentPlayer?.Id ? "text-[#66FCF1]" : "text-[#C5C6C7]")">@p.Name</span>
+                                <span class="text-sm font-bold text-[#45A29E]">@p.WordsGuessed</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (Game.State == GameManager.GameState.Finished)
+    {
+        <div class="glass-card max-w-2xl mx-auto text-center py-16 animate-fade-in-up relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 @(Game.IsVictory ? "bg-[#66FCF1]" : "bg-red-500")"></div>
+            
+            <div class="text-5xl mb-8 font-light @(Game.IsVictory ? "text-[#66FCF1]" : "text-red-500") tracking-widest uppercase">
+                @(Game.IsVictory ? "Victoria" : "Derrota")
+            </div>
+            
+            <p class="text-lg text-[#C5C6C7] mb-12 font-light tracking-wide">@Game.EndReason</p>
+
+            <div class="grid grid-cols-2 gap-8 mb-12">
+                <div class="bg-[#0B0C10] p-6 rounded-md border border-[#1f2833]">
+                    <div class="text-xs font-bold text-[#45A29E] uppercase tracking-widest mb-2">Total Palabras</div>
+                    <div class="text-4xl font-light text-[#C5C6C7]">@Game.UsedWords.Count</div>
+                </div>
+                <div class="bg-[#0B0C10] p-6 rounded-md border border-[#1f2833]">
+                    <div class="text-xs font-bold text-[#45A29E] uppercase tracking-widest mb-2">MVP</div>
+                    <div class="text-4xl font-light text-[#66FCF1] truncate px-2">
+                        @(Game.Players.OrderByDescending(p => p.WordsGuessed).FirstOrDefault()?.Name ?? "-")
+                    </div>
+                </div>
+            </div>
+
+            <button @onclick="ForceRestart" autofocus class="w-full py-4 bg-transparent border border-[#C5C6C7] text-[#C5C6C7] hover:bg-[#C5C6C7] hover:text-[#0B0C10] rounded-md font-bold tracking-widest uppercase transition-all duration-300">
+                Jugar de Nuevo
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private GameManager Game { get; set; } = new GameManager();
+
+    // Setup State
+    private int PlayerCount { get; set; } = 3;
+    private List<string> SetupPlayers { get; set; } = new List<string> { "Jugador 1", "Jugador 2", "Jugador 3" };
+    private int SetupTime { get; set; } = 60;
+    private string SetupTheme { get; set; } = "Animales";
+
+    // Play State
+    private string CurrentInput { get; set; } = "";
+    private ElementReference wordInputRef;
+    private bool ShakeInput = false;
+    private bool HasError = false;
+
+    // Optional audio URLs (Using standard browser beeps or free CDN sounds if available, we'll assume quiet for now unless we provide explicit links. But we can trigger JS without real mp3 easily by using synthesized beeps if needed. For now, try to play dummy.mp3 which might fail gracefully, or just skip audio)
+    
+    protected override void OnInitialized()
+    {
+        Game.OnStateChanged += HandleStateChanged;
+    }
+
+    public void Dispose()
+    {
+        Game.OnStateChanged -= HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(() => {
+            StateHasChanged();
+            if (Game.State == GameManager.GameState.Playing)
+            {
+                _ = FocusInput();
+            }
+        });
+    }
+
+    private void UpdatePlayerName(int index, string? val)
+    {
+        if (index < SetupPlayers.Count && val != null)
+        {
+            SetupPlayers[index] = val;
+        }
+    }
+
+    private void StartGame()
+    {
+        var finalPlayers = SetupPlayers.Take(PlayerCount).ToList();
+        Game.StartGame(finalPlayers, SetupTime, string.IsNullOrWhiteSpace(SetupTheme) ? "Libre" : SetupTheme);
+    }
+
+    private async void HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Code == "Enter" || e.Key == "Enter")
+        {
+            await SubmitCurrentWord();
+        }
+        else if (e.Code == "Escape" || e.Key == "Escape")
+        {
+            ForceRestart();
+        }
+    }
+
+    private async Task SubmitCurrentWord()
+    {
+        if (string.IsNullOrWhiteSpace(CurrentInput)) return;
+
+        bool success = Game.SubmitWord(CurrentInput);
+        if (success)
+        {
+            CurrentInput = "";
+            HasError = false;
+            ShakeInput = false;
+            await FocusInput();
+        }
+        else
+        {
+            HasError = true;
+            ShakeInput = true;
+            StateHasChanged();
+            // Reset shake animation
+            await Task.Delay(500);
+            ShakeInput = false;
+            StateHasChanged();
+            await FocusInput();
+        }
+    }
+
+    private void ForceRestart()
+    {
+        Game.Restart();
+    }
+
+    private async Task FocusInput()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("focusElement", wordInputRef);
+        }
+        catch { /* Ignore */ }
+    }
+}
